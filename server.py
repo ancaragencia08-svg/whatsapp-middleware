@@ -11,9 +11,9 @@ GHL_API_KEY = os.getenv("GHL_API_KEY", "")
 GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "ViNYocNHiwMs8HQMUbMu")
 RECTIMA_BASE_URL = os.getenv("RECTIMA_BASE_URL", "https://app.rectima.com.ec:4005")
 RECTIMA_API_KEY = os.getenv("RECTIMA_API_KEY", "")
-RECTIMA_UBICACION = os.getenv("RECTIMA_UBICACION", "📍 Nos encontramos en Ambato, Tungurahua. Puedes visitarnos en horario de lunes a viernes de 8:00 a 18:00.")
+RECTIMA_UBICACION = os.getenv("RECTIMA_UBICACION", "📍 Nos encontramos en Ambato, Tungurahua. Puedes visitarnos de lunes a viernes de 8:00 a 18:00.")
 
-MENU = """👋 ¡Hola! Bienvenido a *Rectima*.
+MENU_TEXTO = """👋 ¡Hola! Bienvenido a *Rectima*.
 
 ¿En qué podemos ayudarte hoy?
 
@@ -57,7 +57,40 @@ async def enviar_whatsapp_ghl(contact_id: str, mensaje: str):
     payload = {"type": "WhatsApp", "contactId": contact_id, "message": mensaje}
     async with httpx.AsyncClient() as client:
         r = await client.post(url, json=payload, headers=headers)
-        print(f"GHL reply → {r.status_code}: {r.text}")
+        print(f"GHL texto → {r.status_code}: {r.text}")
+
+
+async def enviar_menu_botones(contact_id: str):
+    """Intenta enviar menú con botones interactivos de WhatsApp. Cae en texto si GHL no lo soporta."""
+    url = "https://services.leadconnectorhq.com/conversations/messages"
+    headers = {
+        "Authorization": f"Bearer {GHL_API_KEY}",
+        "Content-Type": "application/json",
+        "Version": "2021-04-15"
+    }
+    payload = {
+        "type": "WhatsApp",
+        "contactId": contact_id,
+        "contentType": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": "👋 ¡Hola! Bienvenido a *Rectima*.\n\n¿En qué podemos ayudarte hoy?"
+            },
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "ubicacion", "title": "📍 Nuestra ubicación"}},
+                    {"type": "reply", "reply": {"id": "repuesto", "title": "🔧 Buscar repuesto"}}
+                ]
+            }
+        }
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json=payload, headers=headers)
+        print(f"GHL botones → {r.status_code}: {r.text}")
+        if r.status_code not in (200, 201):
+            print("Botones no soportados por GHL — enviando menú en texto")
+            await enviar_whatsapp_ghl(contact_id, MENU_TEXTO)
 
 
 def procesar_opcion(mensaje: str) -> str | None:
@@ -94,19 +127,23 @@ async def webhook_ghl(request: Request):
         opcion = procesar_opcion(mensaje)
 
         if opcion == "ubicacion":
-            respuesta = RECTIMA_UBICACION
-        elif opcion == "repuesto":
-            respuesta = await consultar_rectima(mensaje, telefono)
-        else:
-            # Cualquier otro mensaje → mostrar menú
-            respuesta = MENU
+            if contact_id:
+                await enviar_whatsapp_ghl(contact_id, RECTIMA_UBICACION)
+            return {"status": "ok", "respuesta": "ubicacion"}
 
+        if opcion == "repuesto":
+            respuesta = await consultar_rectima(mensaje, telefono)
+            if contact_id:
+                await enviar_whatsapp_ghl(contact_id, respuesta)
+            return {"status": "ok", "respuesta": respuesta}
+
+        # Cualquier otro mensaje → mostrar menú con botones
         if contact_id:
-            await enviar_whatsapp_ghl(contact_id, respuesta)
+            await enviar_menu_botones(contact_id)
         else:
             print(f"Sin contactId — no se puede enviar. Teléfono: {telefono}")
 
-        return {"status": "ok", "respuesta": respuesta}
+        return {"status": "ok", "respuesta": "menu_enviado"}
 
     except Exception as e:
         print(f"Error: {e}")
