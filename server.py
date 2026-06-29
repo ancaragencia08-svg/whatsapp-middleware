@@ -150,6 +150,20 @@ async def webhook_ghl(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/webhook/debug")
+async def webhook_debug(request: Request):
+    """Endpoint para ver exactamente qué manda GHL."""
+    body = await request.body()
+    headers = dict(request.headers)
+    try:
+        data = await request.json()
+    except Exception:
+        data = body.decode()
+    print(f"DEBUG headers: {headers}")
+    print(f"DEBUG body: {data}")
+    return {"headers": headers, "body": data}
+
+
 @app.get("/health")
 async def health():
     return {
